@@ -17,6 +17,7 @@ package cmd
 import (
 	"fmt"
 	"os"
+	"runtime/trace"
 
 	"github.com/clearlinux/diva/internal/config"
 	"github.com/clearlinux/diva/internal/helpers"
@@ -33,18 +34,40 @@ var rootCmd = &cobra.Command{
 	Long: `diva provides validation on Clearlinux content. Including:
 RPM content, bundle information, full buildroot, manifests, fullfiles, packs,
 and more.`,
+	PersistentPreRun: func(cmd *cobra.Command, args []string) {
+		// fmt.Printf("trace is %#v\n", rootCmdFlags)
+		if rootCmdFlags.trace {
+			f, err := os.Create("trace.out")
+			if err != nil {
+				panic(err)
+			}
+
+			err = trace.Start(f)
+			if err != nil {
+				panic(err)
+			}
+			rootCmdFlags.cleanup = func() { trace.Stop(); _ = f.Close() }
+		}
+	},
+	PersistentPostRun: func(cmd *cobra.Command, args []string) {
+		if rootCmdFlags.cleanup != nil {
+			rootCmdFlags.cleanup()
+		}
+		cmd.Print("trace complete, use 'go tool trace -trace=trace.out' to visulize\n")
+	},
 	Run: func(cmd *cobra.Command, args []string) {
 		if rootCmdFlags.version {
 			fmt.Printf("diva %s\n", version)
 			os.Exit(0)
 		}
-		cmd.Print(cmd.UsageString())
 	},
 }
 
 var rootCmdFlags = struct {
 	version    bool
 	configPath string
+	trace      bool   // Enable go runtime tracing
+	cleanup    func() // cleanup function run at the end  of -trace
 }{}
 
 func init() {
@@ -53,6 +76,8 @@ func init() {
 		"version", false, "Print version information and exit")
 	rootCmd.PersistentFlags().StringVarP(&rootCmdFlags.configPath,
 		"config", "c", "", "optional path to configuration file")
+	rootCmd.PersistentFlags().BoolVar(&rootCmdFlags.trace,
+		"trace", false, "trace to trace.out")
 }
 
 var conf *config.Config
@@ -70,4 +95,5 @@ func Execute() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
+	fmt.Printf("Command finished\n")
 }
